@@ -375,6 +375,24 @@ class AuditLog(Base):
     entity_type = Column(String(100))
     entity_id = Column(Integer)
     created_at = Column(DateTime,default=lambda: datetime.now(ZoneInfo("Asia/Kolkata")).replace(tzinfo=None))
+class RegionalManager(Base):
+    __tablename__ = "regional_managers"
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(150), nullable=False)
+    code = Column(String(100), unique=True, nullable=False)
+    phone = Column(String(30))
+    email = Column(String(100))
+    region = Column(String(150))
+    is_active = Column(Boolean, default=True)
+class SalesManager(Base):
+    __tablename__ = "sales_managers"
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(150), nullable=False)
+    code = Column(String(100), unique=True, nullable=False)
+    phone = Column(String(30))
+    email = Column(String(100))
+    region = Column(String(150))
+    is_active = Column(Boolean, default=True)
 class SalesExecutive(Base):
     __tablename__ = "sales_executives"
     id = Column(Integer, primary_key=True, index=True)
@@ -664,6 +682,20 @@ class AuditLogCreate(BaseModel):
     action: str
     entity_type: Optional[str] = None
     entity_id: Optional[int] = None
+class RegionalManagerCreate(BaseModel):
+    name: str
+    code: str
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    region: Optional[str] = None
+    is_active: str = "Yes"
+class SalesManagerCreate(BaseModel):
+    name: str
+    code: str
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    region: Optional[str] = None
+    is_active: str = "Yes"
 class SalesExecutiveCreate(BaseModel):
     name: str
     code: str
@@ -2991,6 +3023,116 @@ def delete_auditlog(log_id: int,db: Session = Depends(get_db)):
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=400, detail=str(e))
+@app.post("/regional-managers")
+def create_regional_manager(data: RegionalManagerCreate,db: Session = Depends(get_db)):
+    existing = db.query(RegionalManager).filter(RegionalManager.code == data.code).first()
+    if existing:
+        raise HTTPException(status_code=400,detail="Regional manager code already exists")
+    manager = RegionalManager(
+        name=data.name,
+        code=data.code,
+        phone=data.phone,
+        email=data.email,
+        region=data.region,
+        is_active=yes_no_to_bool(data.is_active)
+    )
+    db.add(manager)
+    db.commit()
+    db.refresh(manager)
+    return model_response(manager)
+@app.get("/regional-managers")
+def get_regional_managers(db: Session = Depends(get_db)):
+    managers = db.query(RegionalManager).all()
+    return [
+        model_response(manager)
+        for manager in managers
+    ]
+@app.get("/regional-managers/{manager_id}")
+def get_regional_manager(manager_id: int,db: Session = Depends(get_db)):
+    manager = db.query(RegionalManager).filter(RegionalManager.id == manager_id).first()
+    if not manager:
+        raise HTTPException(status_code=404,detail="Regional manager not found")
+    return model_response(manager)
+@app.put("/regional-managers/{manager_id}")
+def update_regional_manager(manager_id: int,data: RegionalManagerCreate,db: Session = Depends(get_db)):
+    manager = db.query(RegionalManager).filter(RegionalManager.id == manager_id).first()
+    if not manager:
+        raise HTTPException(status_code=404,detail="Regional manager not found")
+    manager.name = data.name
+    manager.code = data.code
+    manager.phone = data.phone
+    manager.email = data.email
+    manager.region = data.region
+    manager.is_active = yes_no_to_bool(data.is_active)
+    db.commit()
+    db.refresh(manager)
+    return model_response(manager)
+@app.delete("/regional-managers/{manager_id}")
+def delete_regional_manager(manager_id: int,db: Session = Depends(get_db)):
+    manager = db.query(RegionalManager).filter(RegionalManager.id == manager_id).first()
+    if not manager:
+        raise HTTPException(status_code=404,detail="Regional manager not found")
+    db.delete(manager)
+    db.commit()
+    return {
+        "message": "Regional manager deleted successfully",
+        "id": manager_id
+    }
+@app.post("/sales-managers")
+def create_sales_manager(data: SalesManagerCreate,db: Session = Depends(get_db)):
+    existing = db.query(SalesManager).filter(SalesManager.code == data.code).first()
+    if existing:
+        raise HTTPException(status_code=400,detail="Sales manager code already exists")
+    manager = SalesManager(
+        name=data.name,
+        code=data.code,
+        phone=data.phone,
+        email=data.email,
+        region=data.region,
+        is_active=yes_no_to_bool(data.is_active)
+    )
+    db.add(manager)
+    db.commit()
+    db.refresh(manager)
+    return model_response(manager)
+@app.get("/sales-managers")
+def get_sales_managers(db: Session = Depends(get_db)):
+    managers = db.query(SalesManager).all()
+    return [
+        model_response(manager)
+        for manager in managers
+    ]
+@app.get("/sales-managers/{manager_id}")
+def get_sales_manager(manager_id: int,db: Session = Depends(get_db)):
+    manager = db.query(SalesManager).filter(SalesManager.id == manager_id).first()
+    if not manager:
+        raise HTTPException(status_code=404,detail="Sales manager not found")
+    return model_response(manager)
+@app.put("/sales-managers/{manager_id}")
+def update_sales_manager(manager_id: int,data: SalesManagerCreate,db: Session = Depends(get_db)):
+    manager = db.query(SalesManager).filter(SalesManager.id == manager_id).first()
+    if not manager:
+        raise HTTPException(status_code=404,detail="Sales manager not found")
+    manager.name = data.name
+    manager.code = data.code
+    manager.phone = data.phone
+    manager.email = data.email
+    manager.region = data.region
+    manager.is_active = yes_no_to_bool(data.is_active)
+    db.commit()
+    db.refresh(manager)
+    return model_response(manager)
+@app.delete("/sales-managers/{manager_id}")
+def delete_sales_manager(manager_id: int,db: Session = Depends(get_db)):
+    manager = db.query(SalesManager).filter(SalesManager.id == manager_id).first()
+    if not manager:
+        raise HTTPException(status_code=404,detail="Sales manager not found")
+    db.delete(manager)
+    db.commit()
+    return {
+        "message": "Sales manager deleted successfully",
+        "id": manager_id
+    }
 @app.post("/sales-executives")
 def create_sales_executive(data: SalesExecutiveCreate,db: Session = Depends(get_db)):
     executive = SalesExecutive(
