@@ -338,7 +338,9 @@ class MembershipPlan(Base):
     __tablename__ = "membership_plans"
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(150), nullable=False)
+    credits = Column(Integer, default=0)
     price = Column(Float, default=0)
+    sku_range = Column(String(100))
     duration_days = Column(Integer)
     is_active = Column(Boolean, default=True)
 class PlanBenefit(Base):
@@ -658,7 +660,9 @@ class NotificationCreate(BaseModel):
     is_read: bool = False
 class MembershipPlanCreate(BaseModel):
     name: str
+    credits: Optional[int] = 0
     price: Optional[float] = 0
+    sku_range: Optional[str] = None
     duration_days: Optional[int] = None
     is_active: str = "Yes"
 class PlanBenefitCreate(BaseModel):
