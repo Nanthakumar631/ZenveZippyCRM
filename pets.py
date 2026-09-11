@@ -3562,7 +3562,6 @@ def delete_monthly_plan(plan_id: int, db: Session = Depends(get_db)):
     plan = db.query(MonthlyPlan).filter(MonthlyPlan.id == plan_id).first()
     if not plan:
         raise HTTPException(status_code=404, detail="Monthly plan not found")
-    # Cascade delete associated visits
     db.query(PlanVisit).filter(PlanVisit.plan_id == plan_id).delete()
     db.delete(plan)
     db.commit()
