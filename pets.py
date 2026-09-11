@@ -1,7 +1,7 @@
 from fastapi import FastAPI ,Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import create_engine, Integer,Column
-from sqlalchemy import String,Boolean,Float,Date,DateTime,Time,ForeignKey,text
+from sqlalchemy import String,Boolean,Float,Date,DateTime,Time,ForeignKey,text,Text,UniqueConstraint
 from sqlalchemy.orm import declarative_base,sessionmaker,Session
 from typing import Optional
 from datetime import datetime,date,time
@@ -21,6 +21,14 @@ def yes_no_to_bool(value):
         if value == "no":
             return False
     raise HTTPException(status_code=422,detail="Value must be Yes or No")
+def plan_response(obj):
+    data = {k: v for k, v in obj.__dict__.items() if k != "_sa_instance_state"}
+    for k, v in data.items():
+        if isinstance(v, datetime):
+            data[k] = v.isoformat()
+        elif isinstance(v, date):
+            data[k] = v.isoformat()
+    return data
 def model_response(obj):
     data = {
         key: value
@@ -334,8 +342,8 @@ class Notification(Base):
     channel = Column(String(100))
     is_read = Column(Boolean, default=False)
     created_at = Column(DateTime,default=lambda: datetime.now(ZoneInfo("Asia/Kolkata")).replace(tzinfo=None))
-class MembershipPlan(Base):
-    __tablename__ = "membership_plans"
+class VendorMembershipPlan(Base):
+    __tablename__ = "vendor_membership_plans"
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(150), nullable=False)
     credits = Column(Integer, default=0)
@@ -346,14 +354,14 @@ class MembershipPlan(Base):
 class PlanBenefit(Base):
     __tablename__ = "plan_benefits"
     id = Column(Integer, primary_key=True, index=True)
-    plan_id = Column(Integer,ForeignKey("membership_plans.id"),nullable=False)
+    plan_id = Column(Integer,ForeignKey("vendor_membership_plans.id"),nullable=False)
     benefit = Column(String(300), nullable=False)
     value = Column(String(300))
-class Membership(Base):
-    __tablename__ = "memberships"
+class Vendor(Base):
+    __tablename__ = "vendors"
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, nullable=False)
-    plan_id = Column(Integer,ForeignKey("membership_plans.id"),nullable=False)
+    plan_id = Column(Integer,ForeignKey("vendor_membership_plans.id"),nullable=False)
     started_on = Column(Date)
     expires_on = Column(Date)
     status = Column(String(50), default="active")
@@ -434,6 +442,79 @@ class ExecutiveAlert(Base):
     pincode = Column(String(20))
     is_read = Column(Boolean, default=False)
     created_at = Column(DateTime,default=lambda: datetime.now(ZoneInfo("Asia/Kolkata")).replace(tzinfo=None))
+class MonthlyPlan(Base):
+    __tablename__ = "monthly_plans"
+    id = Column(Integer, primary_key=True, index=True)
+    executive_id = Column(Integer, ForeignKey("sales_executives.id"), nullable=False)
+    month_key = Column(String(10), nullable=False)  
+    month_label = Column(String(50))
+    working_days = Column(Integer, default=0)
+    daily_target = Column(Integer, default=0)
+    total_doctors = Column(Integer, default=0)
+    planning_method = Column(String(20), default="auto") 
+    status = Column(String(30), default="Draft")
+    submitted_at = Column(DateTime, nullable=True)
+    approved_at = Column(DateTime, nullable=True)
+    approved_by = Column(String(150), nullable=True)
+    rejection_reason = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(ZoneInfo("Asia/Kolkata")).replace(tzinfo=None))
+    __table_args__ = (UniqueConstraint("executive_id", "month_key", name="uq_exec_month"),)
+class PlanVisit(Base):
+    __tablename__ = "plan_visits"
+    id = Column(Integer, primary_key=True, index=True)
+    plan_id = Column(Integer, ForeignKey("monthly_plans.id"), nullable=False)
+    executive_id = Column(Integer, ForeignKey("sales_executives.id"), nullable=False)
+    doctor_id = Column(Integer, ForeignKey("doctors.id"), nullable=False)
+    scheduled_date = Column(Date, nullable=False)
+    visit_time = Column(String(20), default="10:00 AM")
+    status = Column(String(30), default="Planned")
+    reschedule_reason = Column(String(200), nullable=True)
+    rescheduled_from = Column(Date, nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(ZoneInfo("Asia/Kolkata")).replace(tzinfo=None))
+class VisitReport(Base):
+    __tablename__ = "visit_reports"
+    id = Column(Integer, primary_key=True, index=True)
+    plan_visit_id = Column(Integer, ForeignKey("plan_visits.id"), nullable=False)
+    executive_id = Column(Integer, ForeignKey("sales_executives.id"), nullable=False)
+    doctor_id = Column(Integer, ForeignKey("doctors.id"), nullable=False)
+    visit_date = Column(Date, nullable=False)
+    visit_time = Column(String(20))
+    location = Column(String(300))
+    purpose = Column(String(150))
+    products_discussed = Column(Text)
+    notes = Column(Text)
+    doctor_feedback = Column(Text)
+    next_followup_date = Column(Date, nullable=True)
+    next_action = Column(String(300))
+    remarks = Column(Text)
+    follow_up_required = Column(Boolean, default=True)
+    status = Column(String(30), default="Draft")
+    submitted_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(ZoneInfo("Asia/Kolkata")).replace(tzinfo=None))
+class ExecutiveSubmissionReport(Base):
+    __tablename__ = "executive_submission_reports"
+    id = Column(Integer, primary_key=True, index=True)
+    executive_id = Column(Integer, ForeignKey("sales_executives.id"), nullable=False)
+    executive_name = Column(String(100), nullable=True)
+    employee_code = Column(String(50), nullable=True)
+    region = Column(String(100), nullable=True)
+    report_date = Column(Date, nullable=False)
+    reporting_type = Column(String(50), default="Field")
+    recipient_type = Column(String(50), default="both") 
+    manager_id = Column(Integer, nullable=True)
+    manager_name = Column(String(100), nullable=True)
+    regional_manager_id = Column(Integer, nullable=True)
+    regional_manager_name = Column(String(100), nullable=True)
+    total_visits = Column(Integer, default=0)
+    reported_visits = Column(Integer, default=0)
+    summary_notes = Column(Text, nullable=True)
+    visits_json = Column(Text, nullable=True)
+    status = Column(String(50), default="Submitted")
+    manager_remarks = Column(Text, nullable=True)
+    regional_remarks = Column(Text, nullable=True)
+    reviewed_at = Column(DateTime, nullable=True)
+    submitted_at = Column(DateTime, default=lambda: datetime.now(ZoneInfo("Asia/Kolkata")).replace(tzinfo=None))
+    created_at = Column(DateTime, default=lambda: datetime.now(ZoneInfo("Asia/Kolkata")).replace(tzinfo=None))
 Base.metadata.create_all(bind=engine)
 class PetParentCreate(BaseModel):
     full_name: str
@@ -658,7 +739,7 @@ class NotificationCreate(BaseModel):
     title: str
     channel: Optional[str] = None
     is_read: bool = False
-class MembershipPlanCreate(BaseModel):
+class VendorMembershipPlanCreate(BaseModel):
     name: str
     credits: Optional[int] = 0
     price: Optional[float] = 0
@@ -669,7 +750,7 @@ class PlanBenefitCreate(BaseModel):
     plan_id: int
     benefit: str
     value: Optional[str] = None
-class MembershipCreate(BaseModel):
+class VendorCreate(BaseModel):
     user_id: int
     plan_id: int
     started_on: Optional[date] = None
@@ -730,6 +811,95 @@ class ExecutiveAlertCreate(BaseModel):
     entity_type: Optional[str] = None
     pincode: Optional[str] = None
     is_read: bool = False
+class MonthlyPlanCreate(BaseModel):
+    executive_id: int
+    month_key: str
+    month_label: Optional[str] = None
+    working_days: int = 0
+    daily_target: int = 0
+    total_doctors: int = 0
+    planning_method: str = "auto"
+class MonthlyPlanUpdate(BaseModel):
+    status: Optional[str] = None
+    working_days: Optional[int] = None
+    daily_target: Optional[int] = None
+    total_doctors: Optional[int] = None
+    planning_method: Optional[str] = None
+    submitted_at: Optional[datetime] = None
+    approved_at: Optional[datetime] = None
+    approved_by: Optional[str] = None
+    rejection_reason: Optional[str] = None
+class PlanVisitCreate(BaseModel):
+    plan_id: int
+    executive_id: int
+    doctor_id: int
+    scheduled_date: date
+    visit_time: str = "10:00 AM"
+    status: str = "Planned"
+    reschedule_reason: Optional[str] = None
+    rescheduled_from: Optional[date] = None
+class PlanVisitUpdate(BaseModel):
+    scheduled_date: Optional[date] = None
+    visit_time: Optional[str] = None
+    status: Optional[str] = None
+    reschedule_reason: Optional[str] = None
+    rescheduled_from: Optional[date] = None
+class VisitReportCreate(BaseModel):
+    plan_visit_id: int
+    executive_id: int
+    doctor_id: int
+    visit_date: date
+    visit_time: Optional[str] = None
+    location: Optional[str] = None
+    purpose: Optional[str] = None
+    products_discussed: Optional[str] = None
+    notes: Optional[str] = None
+    doctor_feedback: Optional[str] = None
+    next_followup_date: Optional[date] = None
+    next_action: Optional[str] = None
+    remarks: Optional[str] = None
+    follow_up_required: bool = True
+    status: Optional[str] = None
+    submitted_at: Optional[datetime] = None
+class ExecutiveSubmissionReportCreate(BaseModel):
+    executive_id: int
+    executive_name: Optional[str] = None
+    employee_code: Optional[str] = None
+    region: Optional[str] = None
+    report_date: date
+    reporting_type: Optional[str] = "Field"
+    recipient_type: Optional[str] = "both"
+    manager_id: Optional[int] = None
+    manager_name: Optional[str] = None
+    regional_manager_id: Optional[int] = None
+    regional_manager_name: Optional[str] = None
+    total_visits: Optional[int] = 0
+    reported_visits: Optional[int] = 0
+    summary_notes: Optional[str] = None
+    visits_json: Optional[str] = None
+    status: Optional[str] = "Submitted"
+class ExecutiveSubmissionReportUpdate(BaseModel):
+    status: Optional[str] = None
+    manager_remarks: Optional[str] = None
+    regional_remarks: Optional[str] = None
+    summary_notes: Optional[str] = None
+class VisitReportUpdate(BaseModel):
+    visit_date: Optional[date] = None
+    visit_time: Optional[str] = None
+    location: Optional[str] = None
+    purpose: Optional[str] = None
+    products_discussed: Optional[str] = None
+    notes: Optional[str] = None
+    doctor_feedback: Optional[str] = None
+    next_followup_date: Optional[date] = None
+    next_action: Optional[str] = None
+    remarks: Optional[str] = None
+    follow_up_required: Optional[bool] = None
+    status: Optional[str] = None
+    submitted_at: Optional[datetime] = None
+class RejectBody(BaseModel):
+    reason: str
+    request_changes: bool = False
 @app.get("/")
 def home():
     return{"message":"Pet Management API is Running"}
@@ -2718,29 +2888,29 @@ def delete_notification(notification_id: int,db: Session = Depends(get_db)):
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=400,detail=str(e))
-@app.post("/membership-plans")
-def create_membership_plan(data: MembershipPlanCreate,db: Session = Depends(get_db)):
+@app.post("/vendor-membership-plans")
+def create_vendor_membership_plan(data: VendorMembershipPlanCreate,db: Session = Depends(get_db)):
     plan_data = data.model_dump()
     plan_data["is_active"] = yes_no_to_bool(plan_data["is_active"])
-    plan = MembershipPlan(**plan_data)
+    plan = VendorMembershipPlan(**plan_data)
     db.add(plan)
     db.commit()
     db.refresh(plan)
     return model_response(plan)
-@app.get("/membership-plans")
-def get_membership_plans(db: Session = Depends(get_db)):
-    return [model_response(item) for item in db.query(MembershipPlan).all()]
-@app.get("/membership-plans/{plan_id}")
-def get_membership_plan(plan_id: int,db: Session = Depends(get_db)):
-    plan = db.query(MembershipPlan).filter(MembershipPlan.id == plan_id).first()
+@app.get("/vendor-membership-plans")
+def get_vendor_membership_plans(db: Session = Depends(get_db)):
+    return [model_response(item) for item in db.query(VendorMembershipPlan).all()]
+@app.get("/vendor-membership-plans/{plan_id}")
+def get_vendor_membership_plan(plan_id: int,db: Session = Depends(get_db)):
+    plan = db.query(VendorMembershipPlan).filter(VendorMembershipPlan.id == plan_id).first()
     if not plan:
-        raise HTTPException(status_code=404,detail="Membership plan not found")
+        raise HTTPException(status_code=404,detail="Vendor plan not found")
     return model_response(plan)
-@app.put("/membership-plans/{plan_id}")
-def update_membershipplan(plan_id: int,data: MembershipPlanCreate,db: Session = Depends(get_db)):
-    record = db.query(MembershipPlan).filter(MembershipPlan.id == plan_id).first()
+@app.put("/vendor-membership-plans/{plan_id}")
+def update_vendor_membership_plan(plan_id: int,data: VendorMembershipPlanCreate,db: Session = Depends(get_db)):
+    record = db.query(VendorMembershipPlan).filter(VendorMembershipPlan.id == plan_id).first()
     if not record:
-        raise HTTPException(status_code=404,detail="MembershipPlan not found")
+        raise HTTPException(status_code=404,detail="VendorVendorMembershipPlan not found")
     try:
         update_data = data.model_dump(exclude_unset=True)
         if "is_active" in update_data:
@@ -2755,16 +2925,16 @@ def update_membershipplan(plan_id: int,data: MembershipPlanCreate,db: Session = 
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=400,detail=str(e))
-@app.delete("/membership-plans/{plan_id}")
-def delete_membershipplan(plan_id: int,db: Session = Depends(get_db)):
-    record = db.query(MembershipPlan).filter(MembershipPlan.id == plan_id).first()
+@app.delete("/vendor-membership-plans/{plan_id}")
+def delete_vendor_membership_plan(plan_id: int,db: Session = Depends(get_db)):
+    record = db.query(VendorMembershipPlan).filter(VendorMembershipPlan.id == plan_id).first()
     if not record:
-        raise HTTPException(status_code=404,detail="MembershipPlan not found")
+        raise HTTPException(status_code=404,detail="VendorVendorMembershipPlan not found")
     try:
         db.delete(record)
         db.commit()
         return {
-            "message": "MembershipPlan deleted successfully",
+            "message": "VendorMembershipPlan deleted successfully",
             "id": plan_id
         }
     except Exception as e:
@@ -2772,9 +2942,9 @@ def delete_membershipplan(plan_id: int,db: Session = Depends(get_db)):
         raise HTTPException(status_code=400,detail=str(e))
 @app.post("/plan-benefits")
 def create_plan_benefit(data: PlanBenefitCreate,db: Session = Depends(get_db)):
-    plan = db.query(MembershipPlan).filter(MembershipPlan.id == data.plan_id).first()
+    plan = db.query(VendorMembershipPlan).filter(VendorMembershipPlan.id == data.plan_id).first()
     if not plan:
-        raise HTTPException(status_code=404,detail="Membership plan not found")
+        raise HTTPException(status_code=404,detail="Vendor plan not found")
     benefit = PlanBenefit(**data.model_dump())
     db.add(benefit)
     db.commit()
@@ -2823,32 +2993,32 @@ def delete_planbenefit(benefit_id: int,db: Session = Depends(get_db)):
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=400, detail=str(e))
-@app.post("/memberships")
-def create_membership(data: MembershipCreate,db: Session = Depends(get_db)):
-    plan = db.query(MembershipPlan).filter(
-        MembershipPlan.id == data.plan_id).first()
+@app.post("/vendors")
+def create_vendor(data: VendorCreate,db: Session = Depends(get_db)):
+    plan = db.query(VendorMembershipPlan).filter(
+        VendorMembershipPlan.id == data.plan_id).first()
     if not plan:
-        raise HTTPException(status_code=404,detail="Membership plan not found")
-    membership = Membership(**data.model_dump())
-    db.add(membership)
+        raise HTTPException(status_code=404,detail="Vendor plan not found")
+    vendor = Vendor(**data.model_dump())
+    db.add(vendor)
     db.commit()
-    db.refresh(membership)
-    return membership
-@app.get("/memberships")
-def get_memberships(db: Session = Depends(get_db)):
-    return db.query(Membership).all()
-@app.get("/memberships/{membership_id}")
-def get_membership(membership_id: int,db: Session = Depends(get_db)):
-    membership = db.query(Membership).filter(
-        Membership.id == membership_id).first()
-    if not membership:
-        raise HTTPException(status_code=404,detail="Membership not found")
-    return membership
-@app.put("/memberships/{membership_id}")
-def update_membership(membership_id: int,data: MembershipCreate,db: Session = Depends(get_db)):
-    record = db.query(Membership).filter(Membership.id == membership_id).first()
+    db.refresh(vendor)
+    return vendor
+@app.get("/vendors")
+def get_vendors(db: Session = Depends(get_db)):
+    return db.query(Vendor).all()
+@app.get("/vendors/{vendor_id}")
+def get_vendor(vendor_id: int,db: Session = Depends(get_db)):
+    vendor = db.query(Vendor).filter(
+        Vendor.id == vendor_id).first()
+    if not vendor:
+        raise HTTPException(status_code=404,detail="Vendor not found")
+    return vendor
+@app.put("/vendors/{vendor_id}")
+def update_vendor(vendor_id: int,data: VendorCreate,db: Session = Depends(get_db)):
+    record = db.query(Vendor).filter(Vendor.id == vendor_id).first()
     if not record:
-        raise HTTPException(status_code=404,detail="Membership not found")
+        raise HTTPException(status_code=404,detail="Vendor not found")
     try:
         update_data = data.model_dump(exclude_unset=True)
         if "is_active" in update_data:
@@ -2863,17 +3033,17 @@ def update_membership(membership_id: int,data: MembershipCreate,db: Session = De
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=400,detail=str(e) )
-@app.delete("/memberships/{membership_id}")
-def delete_membership(membership_id: int,db: Session = Depends(get_db)):
-    record = db.query(Membership).filter(Membership.id == membership_id).first()
+@app.delete("/vendors/{vendor_id}")
+def delete_vendor(vendor_id: int,db: Session = Depends(get_db)):
+    record = db.query(Vendor).filter(Vendor.id == vendor_id).first()
     if not record:
-        raise HTTPException(status_code=404,detail="Membership not found")
+        raise HTTPException(status_code=404,detail="Vendor not found")
     try:
         db.delete(record)
         db.commit()
         return {
-            "message": "Membership deleted successfully",
-            "id": membership_id
+            "message": "Vendor deleted successfully",
+            "id": vendor_id
         }
     except Exception as e:
         db.rollback()
@@ -3340,3 +3510,340 @@ def delete_executive_alert(alert_id: int,db: Session = Depends(get_db)):
         "message": "Executive alert deleted successfully",
         "id": alert_id
     }
+@app.post("/monthly-plans")
+def create_monthly_plan(data: MonthlyPlanCreate, db: Session = Depends(get_db)):
+    plan = MonthlyPlan(**data.model_dump())
+    db.add(plan)
+    try:
+        db.commit()
+        db.refresh(plan)
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+    return plan_response(plan)
+@app.get("/monthly-plans")
+def get_monthly_plans(
+    executive_id: Optional[int] = None,
+    month_key: Optional[str] = None,
+    status: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    q = db.query(MonthlyPlan)
+    if executive_id is not None:
+        q = q.filter(MonthlyPlan.executive_id == executive_id)
+    if month_key is not None:
+        q = q.filter(MonthlyPlan.month_key == month_key)
+    if status is not None:
+        q = q.filter(MonthlyPlan.status == status)
+    return [plan_response(p) for p in q.all()]
+@app.get("/monthly-plans/{plan_id}")
+def get_monthly_plan(plan_id: int, db: Session = Depends(get_db)):
+    plan = db.query(MonthlyPlan).filter(MonthlyPlan.id == plan_id).first()
+    if not plan:
+        raise HTTPException(status_code=404, detail="Monthly plan not found")
+    return plan_response(plan)
+@app.put("/monthly-plans/{plan_id}")
+def update_monthly_plan(plan_id: int, data: MonthlyPlanUpdate, db: Session = Depends(get_db)):
+    plan = db.query(MonthlyPlan).filter(MonthlyPlan.id == plan_id).first()
+    if not plan:
+        raise HTTPException(status_code=404, detail="Monthly plan not found")
+    updates = data.model_dump(exclude_unset=True)
+    for field, value in updates.items():
+        setattr(plan, field, value)
+    try:
+        db.commit()
+        db.refresh(plan)
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+    return plan_response(plan)
+@app.delete("/monthly-plans/{plan_id}")
+def delete_monthly_plan(plan_id: int, db: Session = Depends(get_db)):
+    plan = db.query(MonthlyPlan).filter(MonthlyPlan.id == plan_id).first()
+    if not plan:
+        raise HTTPException(status_code=404, detail="Monthly plan not found")
+    # Cascade delete associated visits
+    db.query(PlanVisit).filter(PlanVisit.plan_id == plan_id).delete()
+    db.delete(plan)
+    db.commit()
+    return {"message": "Monthly plan and visits deleted", "id": plan_id}
+@app.post("/monthly-plans/{plan_id}/submit")
+def submit_monthly_plan(plan_id: int, db: Session = Depends(get_db)):
+    plan = db.query(MonthlyPlan).filter(MonthlyPlan.id == plan_id).first()
+    if not plan:
+        raise HTTPException(status_code=404, detail="Monthly plan not found")
+    plan.status = "Submitted"
+    plan.submitted_at = datetime.now(ZoneInfo("Asia/Kolkata")).replace(tzinfo=None)
+    db.commit()
+    db.refresh(plan)
+    return plan_response(plan)
+def _normalize_approvers(existing_str: Optional[str], new_approver: Optional[str]) -> str:
+    if not new_approver:
+        return existing_str or "Manager"
+    existing_items = [x.strip() for x in (existing_str or "").split(",") if x.strip()]    
+    cleaned = []
+    has_sales_mgr = any("(Sales Manager)" in x for x in existing_items + [new_approver])
+    has_regional_mgr = any("(Regional Manager)" in x for x in existing_items + [new_approver])
+    for item in existing_items:
+        if (item == "Emily" or item == "Manager") and has_sales_mgr:
+            continue
+        if (item == "John" or item == "Manager") and has_regional_mgr:
+            continue
+        if item not in cleaned:
+            cleaned.append(item)            
+    if new_approver not in cleaned:
+        cleaned.append(new_approver)
+    return ", ".join(cleaned)
+@app.post("/monthly-plans/{plan_id}/approve")
+def approve_monthly_plan(plan_id: int,approved_by: Optional[str] = "Manager",db: Session = Depends(get_db),):
+    plan = db.query(MonthlyPlan).filter(MonthlyPlan.id == plan_id).first()
+    if not plan:
+        raise HTTPException(status_code=404, detail="Monthly plan not found")
+    plan.status = "Approved"
+    plan.approved_at = datetime.now(ZoneInfo("Asia/Kolkata")).replace(tzinfo=None)
+    plan.approved_by = _normalize_approvers(plan.approved_by, approved_by)
+    plan.rejection_reason = None
+    db.commit()
+    db.refresh(plan)
+    return plan_response(plan)
+@app.post("/monthly-plans/{plan_id}/reject")
+def reject_monthly_plan(plan_id: int, body: RejectBody, db: Session = Depends(get_db)):
+    plan = db.query(MonthlyPlan).filter(MonthlyPlan.id == plan_id).first()
+    if not plan:
+        raise HTTPException(status_code=404, detail="Monthly plan not found")
+    plan.status = "Draft" if body.request_changes else "Rejected"
+    plan.rejection_reason = body.reason
+    plan.approved_by = None
+    plan.approved_at = None
+    db.commit()
+    db.refresh(plan)
+    return plan_response(plan)
+@app.post("/plan-visits")
+def create_plan_visit(data: PlanVisitCreate, db: Session = Depends(get_db)):
+    visit = PlanVisit(**data.model_dump())
+    db.add(visit)
+    try:
+        db.commit()
+        db.refresh(visit)
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+    return plan_response(visit)
+@app.post("/plan-visits/bulk")
+def bulk_create_plan_visits(visits: list[PlanVisitCreate],db: Session = Depends(get_db),):
+    objs = [PlanVisit(**v.model_dump()) for v in visits]
+    db.bulk_save_objects(objs)
+    try:
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+    if visits:
+        plan_id = visits[0].plan_id
+        exec_id = visits[0].executive_id
+        rows = db.query(PlanVisit).filter(PlanVisit.plan_id == plan_id,PlanVisit.executive_id == exec_id,).all()
+        return [plan_response(r) for r in rows]
+    return []
+@app.get("/plan-visits")
+def get_plan_visits(
+    plan_id: Optional[int] = None,
+    executive_id: Optional[int] = None,
+    doctor_id: Optional[int] = None,
+    status: Optional[str] = None,
+    db: Session = Depends(get_db),
+):
+    q = db.query(PlanVisit)
+    if plan_id is not None:
+        q = q.filter(PlanVisit.plan_id == plan_id)
+    if executive_id is not None:
+        q = q.filter(PlanVisit.executive_id == executive_id)
+    if doctor_id is not None:
+        q = q.filter(PlanVisit.doctor_id == doctor_id)
+    if status:
+        q = q.filter(PlanVisit.status == status)
+    return [plan_response(v) for v in q.all()]
+@app.get("/plan-visits/{visit_id}")
+def get_plan_visit(visit_id: int, db: Session = Depends(get_db)):
+    visit = db.query(PlanVisit).filter(PlanVisit.id == visit_id).first()
+    if not visit:
+        raise HTTPException(status_code=404, detail="Plan visit not found")
+    return plan_response(visit)
+@app.put("/plan-visits/{visit_id}")
+def update_plan_visit(visit_id: int, data: PlanVisitUpdate, db: Session = Depends(get_db)):
+    visit = db.query(PlanVisit).filter(PlanVisit.id == visit_id).first()
+    if not visit:
+        raise HTTPException(status_code=404, detail="Plan visit not found")
+    for field, value in data.model_dump(exclude_unset=True).items():
+        setattr(visit, field, value)
+    try:
+        db.commit()
+        db.refresh(visit)
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+    return plan_response(visit)
+@app.delete("/plan-visits/{visit_id}")
+def delete_plan_visit(visit_id: int, db: Session = Depends(get_db)):
+    visit = db.query(PlanVisit).filter(PlanVisit.id == visit_id).first()
+    if not visit:
+        raise HTTPException(status_code=404, detail="Plan visit not found")
+    db.delete(visit)
+    db.commit()
+    return {"message": "Plan visit deleted", "id": visit_id}
+@app.post("/visit-reports")
+def create_visit_report(data: VisitReportCreate, db: Session = Depends(get_db)):
+    report = VisitReport(**data.model_dump())
+    if data.status == "Submitted" and not report.submitted_at:
+        report.submitted_at = datetime.now(ZoneInfo("Asia/Kolkata")).replace(tzinfo=None)
+    db.add(report)
+    try:
+        db.commit()
+        db.refresh(report)
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+    if data.status == "Submitted":
+        visit = db.query(PlanVisit).filter(PlanVisit.id == data.plan_visit_id).first()
+        if visit:
+            visit.status = "Completed"
+            db.commit()
+    return plan_response(report)
+@app.get("/visit-reports")
+def get_visit_reports(
+    plan_visit_id: Optional[int] = None,
+    executive_id: Optional[int] = None,
+    doctor_id: Optional[int] = None,
+    db: Session = Depends(get_db),
+):
+    q = db.query(VisitReport)
+    if plan_visit_id is not None:
+        q = q.filter(VisitReport.plan_visit_id == plan_visit_id)
+    if executive_id is not None:
+        q = q.filter(VisitReport.executive_id == executive_id)
+    if doctor_id is not None:
+        q = q.filter(VisitReport.doctor_id == doctor_id)
+    return [plan_response(r) for r in q.all()]
+@app.get("/visit-reports/{report_id}")
+def get_visit_report(report_id: int, db: Session = Depends(get_db)):
+    report = db.query(VisitReport).filter(VisitReport.id == report_id).first()
+    if not report:
+        raise HTTPException(status_code=404, detail="Visit report not found")
+    return plan_response(report)
+@app.put("/visit-reports/{report_id}")
+def update_visit_report(report_id: int, data: VisitReportUpdate, db: Session = Depends(get_db)):
+    report = db.query(VisitReport).filter(VisitReport.id == report_id).first()
+    if not report:
+        raise HTTPException(status_code=404, detail="Visit report not found")
+    updates = data.model_dump(exclude_unset=True)
+    if updates.get("status") == "Submitted" and not report.submitted_at:
+        updates["submitted_at"] = datetime.now(ZoneInfo("Asia/Kolkata")).replace(tzinfo=None)
+    for field, value in updates.items():
+        setattr(report, field, value)
+    try:
+        db.commit()
+        db.refresh(report)
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+    if updates.get("status") == "Submitted":
+        visit = db.query(PlanVisit).filter(PlanVisit.id == report.plan_visit_id).first()
+        if visit:
+            visit.status = "Completed"
+            db.commit()
+    return plan_response(report)
+@app.delete("/visit-reports/{report_id}")
+def delete_visit_report(report_id: int, db: Session = Depends(get_db)):
+    report = db.query(VisitReport).filter(VisitReport.id == report_id).first()
+    if not report:
+        raise HTTPException(status_code=404, detail="Visit report not found")
+    db.delete(report)
+    db.commit()
+    return {"message": "Visit report deleted", "id": report_id}
+@app.get("/plan-stats/{executive_id}")
+def get_plan_stats(executive_id: int,month_key: Optional[str] = None,db: Session = Depends(get_db),):
+    q = db.query(MonthlyPlan).filter(MonthlyPlan.executive_id == executive_id)
+    if month_key:
+        q = q.filter(MonthlyPlan.month_key == month_key)
+    plan = q.order_by(MonthlyPlan.id.desc()).first()
+    if not plan:
+        return {"has_plan": False, "total_doctors": 0, "completed": 0, "pending": 0, "completion_pct": 0, "plan_status": None}
+    visits = db.query(PlanVisit).filter(PlanVisit.plan_id == plan.id).all()
+    total = len(visits)
+    completed = sum(1 for v in visits if v.status == "Completed")
+    pending = total - completed
+    pct = round((completed / total * 100)) if total > 0 else 0
+    return {
+        "has_plan": True,
+        "plan_id": plan.id,
+        "month_key": plan.month_key,
+        "month_label": plan.month_label,
+        "total_doctors": plan.total_doctors,
+        "working_days": plan.working_days,
+        "daily_target": plan.daily_target,
+        "planned_visits": total,
+        "completed": completed,
+        "pending": pending,
+        "completion_pct": pct,
+        "plan_status": plan.status,
+    }
+@app.post("/executive-submission-reports")
+def create_submission_report(data: ExecutiveSubmissionReportCreate, db: Session = Depends(get_db)):
+    report = ExecutiveSubmissionReport(**data.model_dump())
+    db.add(report)
+    try:
+        db.commit()
+        db.refresh(report)
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+    return plan_response(report)
+@app.get("/executive-submission-reports")
+def get_submission_reports(
+    executive_id: Optional[int] = None,
+    for_role: Optional[str] = None,
+    manager_id: Optional[int] = None,
+    regional_manager_id: Optional[int] = None,
+    report_date: Optional[date] = None,
+    db: Session = Depends(get_db),
+):
+    q = db.query(ExecutiveSubmissionReport)
+    if executive_id is not None:
+        q = q.filter(ExecutiveSubmissionReport.executive_id == executive_id)
+    if for_role == "manager":
+        q = q.filter(ExecutiveSubmissionReport.recipient_type.in_(["manager", "both"]))
+    elif for_role == "regional":
+        q = q.filter(ExecutiveSubmissionReport.recipient_type.in_(["regional", "both"]))
+    if manager_id is not None:
+        q = q.filter(ExecutiveSubmissionReport.manager_id == manager_id)
+    if regional_manager_id is not None:
+        q = q.filter(ExecutiveSubmissionReport.regional_manager_id == regional_manager_id)
+    if report_date is not None:
+        q = q.filter(ExecutiveSubmissionReport.report_date == report_date)
+    reports = q.order_by(ExecutiveSubmissionReport.id.desc()).all()
+    return [plan_response(r) for r in reports]
+@app.get("/executive-submission-reports/{report_id}")
+def get_submission_report(report_id: int, db: Session = Depends(get_db)):
+    r = db.query(ExecutiveSubmissionReport).filter(ExecutiveSubmissionReport.id == report_id).first()
+    if not r:
+        raise HTTPException(status_code=404, detail="Submission report not found")
+    return plan_response(r)
+@app.put("/executive-submission-reports/{report_id}")
+def update_submission_report(report_id: int, data: ExecutiveSubmissionReportUpdate, db: Session = Depends(get_db)):
+    r = db.query(ExecutiveSubmissionReport).filter(ExecutiveSubmissionReport.id == report_id).first()
+    if not r:
+        raise HTTPException(status_code=404, detail="Submission report not found")
+    updates = data.model_dump(exclude_unset=True)
+    for k, v in updates.items():
+        setattr(r, k, v)
+    r.reviewed_at = datetime.now(ZoneInfo("Asia/Kolkata")).replace(tzinfo=None)
+    db.commit()
+    db.refresh(r)
+    return plan_response(r)
+@app.delete("/executive-submission-reports/{report_id}")
+def delete_submission_report(report_id: int, db: Session = Depends(get_db)):
+    r = db.query(ExecutiveSubmissionReport).filter(ExecutiveSubmissionReport.id == report_id).first()
+    if not r:
+        raise HTTPException(status_code=404, detail="Submission report not found")
+    db.delete(r)
+    db.commit()
+    return {"message": "Submission report deleted", "id": report_id}
