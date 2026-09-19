@@ -1,7 +1,7 @@
-from fastapi import FastAPI ,Depends, HTTPException
+from fastapi import FastAPI ,Depends, HTTPException, Form, UploadFile, File
 from pydantic import BaseModel
 from sqlalchemy import create_engine, Integer,Column
-from sqlalchemy import String,Boolean,Float,Date,DateTime,Time,ForeignKey,text,Text,UniqueConstraint
+from sqlalchemy import String,Boolean,Float,Date,DateTime,Time,ForeignKey,text,Text,UniqueConstraint,LargeBinary
 from sqlalchemy.orm import declarative_base,sessionmaker,Session
 from typing import Optional
 from datetime import datetime,date,time
@@ -515,6 +515,28 @@ class ExecutiveSubmissionReport(Base):
     reviewed_at = Column(DateTime, nullable=True)
     submitted_at = Column(DateTime, default=lambda: datetime.now(ZoneInfo("Asia/Kolkata")).replace(tzinfo=None))
     created_at = Column(DateTime, default=lambda: datetime.now(ZoneInfo("Asia/Kolkata")).replace(tzinfo=None))
+class DoctorRequest(Base):
+    __tablename__ = "doctor_requests"
+    id = Column(Integer, primary_key=True, index=True)
+    executive_id = Column(Integer, ForeignKey("sales_executives.id"), nullable=True)
+    name = Column(String(150), nullable=False)
+    phone = Column(String(30), nullable=False)
+    qualification = Column(String(300), nullable=True)
+    specializations = Column(String(500), nullable=True)
+    experience_years = Column(Integer, nullable=True)
+    consultation_fee = Column(Float, nullable=True)
+    pincode = Column(String(20), nullable=True)
+    city = Column(String(150), nullable=True)
+    latitude = Column(Float, nullable=True)
+    longitude = Column(Float, nullable=True)
+    clinic_inside_image = Column(LargeBinary(length=(2**32)-1), nullable=True)
+    clinic_inside_content_type = Column(String(100), nullable=True)
+    clinic_outside_image = Column(LargeBinary(length=(2**32)-1), nullable=True)
+    clinic_outside_content_type = Column(String(100), nullable=True)
+    signature = Column(LargeBinary(length=(2**32)-1), nullable=True)
+    signature_content_type = Column(String(100), nullable=True)
+    status = Column(String(50), default="Pending", nullable=False)
+    created_at = Column(DateTime, default=lambda: datetime.now(ZoneInfo("Asia/Kolkata")).replace(tzinfo=None))
 Base.metadata.create_all(bind=engine)
 class PetParentCreate(BaseModel):
     full_name: str
@@ -897,6 +919,18 @@ class VisitReportUpdate(BaseModel):
     follow_up_required: Optional[bool] = None
     status: Optional[str] = None
     submitted_at: Optional[datetime] = None
+class DoctorRequestCreate(BaseModel):
+    executive_id: Optional[int] = None
+    name: str
+    phone: str
+    qualification: Optional[str] = None
+    specializations: Optional[str] = None
+    experience_years: Optional[int] = None
+    consultation_fee: Optional[float] = None
+    pincode: Optional[str] = None
+    city: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
 class RejectBody(BaseModel):
     reason: str
     request_changes: bool = False
@@ -3846,3 +3880,93 @@ def delete_submission_report(report_id: int, db: Session = Depends(get_db)):
     db.delete(r)
     db.commit()
     return {"message": "Submission report deleted", "id": report_id}
+@app.post("/doctor-requests")
+async def create_doctor_request(
+    executive_id: Optional[int] = Form(None),
+    name: str = Form(...),
+    phone: str = Form(...),
+    qualification: Optional[str] = Form(None),
+    specializations: Optional[str] = Form(None),
+    experience_years: Optional[int] = Form(None),
+    consultation_fee: Optional[float] = Form(None),
+    pincode: Optional[str] = Form(None),
+    city: Optional[str] = Form(None),
+    latitude: Optional[float] = Form(None),
+    longitude: Optional[float] = Form(None),
+    clinic_inside_image: Optional[UploadFile] = File(None),
+    clinic_outside_image: Optional[UploadFile] = File(None),
+    signature: Optional[UploadFile] = File(None),
+    db: Session = Depends(get_db)
+):
+    inside_data = await clinic_inside_image.read() if clinic_inside_image else None
+    outside_data = await clinic_outside_image.read() if clinic_outside_image else None
+    signature_data = await signature.read() if signature else None
+    doctor_request = DoctorRequest(
+        executive_id=executive_id,
+        name=name,
+        phone=phone,
+        qualification=qualification,
+        specializations=specializations,
+        experience_years=experience_years,
+        consultation_fee=consultation_fee,
+        pincode=pincode,
+        city=city,
+        latitude=latitude,
+        longitude=longitude,
+        clinic_inside_image=inside_data,
+        clinic_inside_content_type=clinic_inside_image.content_type if clinic_inside_image else None,
+        clinic_outside_image=outside_data,
+        clinic_outside_content_type=clinic_outside_image.content_type if clinic_outside_image else None,
+        signature=signature_data,
+        signature_content_type=signature.content_type if signature else None,
+        status="Pending"
+    )
+    db.add(doctor_request)
+    db.commit()
+    db.refresh(doctor_request)
+    return {
+        "message": "Doctor request submitted successfully",
+        "id": doctor_request.id,
+        "status": doctor_request.status,
+        "name": doctor_request.name,
+        "phone": doctor_request.phone,
+        "qualification": doctor_request.qualification,
+        "specializations": doctor_request.specializations,
+        "experience_years": doctor_request.experience_years,
+        "consultation_fee": doctor_request.consultation_fee,
+        "pincode": doctor_request.pincode,
+        "city": doctor_request.city,
+        "latitude": doctor_request.latitude,
+        "longitude": doctor_request.longitude,
+        "executive_id": doctor_request.executive_id,
+        "created_at": doctor_request.created_at.isoformat() if doctor_request.created_at else None,
+        "clinic_inside_image_uploaded": inside_data is not None,
+        "clinic_outside_image_uploaded": outside_data is not None,
+        "signature_uploaded": signature_data is not None
+    }
+@app.get("/doctor-requests")
+def get_doctor_requests(db: Session = Depends(get_db)):
+    requests = db.query(DoctorRequest).order_by(DoctorRequest.id.desc()).all()
+    return [
+        {
+            "id": item.id,
+            "executive_id": item.executive_id,
+            "name": item.name,
+            "phone": item.phone,
+            "qualification": item.qualification,
+            "specializations": item.specializations,
+            "experience_years": item.experience_years,
+            "consultation_fee": item.consultation_fee,
+            "pincode": item.pincode,
+            "city": item.city,
+            "latitude": item.latitude,
+            "longitude": item.longitude,
+            "status": item.status,
+            "clinic_inside_image_uploaded": item.clinic_inside_image is not None,
+            "clinic_outside_image_uploaded": item.clinic_outside_image is not None,
+            "signature_uploaded": item.signature is not None,
+            "created_at": item.created_at.isoformat() if item.created_at else None
+        }
+        for item in requests
+    ]
+
