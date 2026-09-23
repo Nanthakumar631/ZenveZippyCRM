@@ -393,6 +393,7 @@ class RegionalManager(Base):
     code = Column(String(100), unique=True, nullable=False)
     phone = Column(String(30))
     email = Column(String(100))
+    password = Column(String(255), nullable=False)
     region = Column(String(150))
     is_active = Column(Boolean, default=True)
 class SalesManager(Base):
@@ -402,6 +403,7 @@ class SalesManager(Base):
     code = Column(String(100), unique=True, nullable=False)
     phone = Column(String(30))
     email = Column(String(100))
+    password = Column(String(255), nullable=False)
     region = Column(String(150))
     is_active = Column(Boolean, default=True)
 class SalesExecutive(Base):
@@ -411,6 +413,7 @@ class SalesExecutive(Base):
     code = Column(String(100), unique=True, nullable=False)
     phone = Column(String(30))
     email = Column(String(100))
+    password = Column(String(255), nullable=False)
     region = Column(String(150))
     city = Column(String(150))
     monthly_target = Column(Float, default=0)
@@ -796,6 +799,7 @@ class RegionalManagerCreate(BaseModel):
     code: str
     phone: Optional[str] = None
     email: Optional[str] = None
+    password: str
     region: Optional[str] = None
     is_active: str = "Yes"
 class SalesManagerCreate(BaseModel):
@@ -803,6 +807,7 @@ class SalesManagerCreate(BaseModel):
     code: str
     phone: Optional[str] = None
     email: Optional[str] = None
+    password: str
     region: Optional[str] = None
     is_active: str = "Yes"
 class SalesExecutiveCreate(BaseModel):
@@ -810,6 +815,7 @@ class SalesExecutiveCreate(BaseModel):
     code: str
     phone: Optional[str] = None
     email: Optional[str] = None
+    password: str
     region: Optional[str] = None
     city: Optional[str] = None
     monthly_target: Optional[float] = 0
@@ -934,6 +940,9 @@ class DoctorRequestCreate(BaseModel):
 class RejectBody(BaseModel):
     reason: str
     request_changes: bool = False
+class SalesCRMLogin(BaseModel):
+    email: str
+    password: str
 @app.get("/")
 def home():
     return{"message":"Pet Management API is Running"}
@@ -3244,6 +3253,7 @@ def create_regional_manager(data: RegionalManagerCreate,db: Session = Depends(ge
         code=data.code,
         phone=data.phone,
         email=data.email,
+        password=data.password,
         region=data.region,
         is_active=yes_no_to_bool(data.is_active)
     )
@@ -3273,6 +3283,7 @@ def update_regional_manager(manager_id: int,data: RegionalManagerCreate,db: Sess
     manager.code = data.code
     manager.phone = data.phone
     manager.email = data.email
+    manager.password = data.password
     manager.region = data.region
     manager.is_active = yes_no_to_bool(data.is_active)
     db.commit()
@@ -3299,6 +3310,7 @@ def create_sales_manager(data: SalesManagerCreate,db: Session = Depends(get_db))
         code=data.code,
         phone=data.phone,
         email=data.email,
+        password=data.password,
         region=data.region,
         is_active=yes_no_to_bool(data.is_active)
     )
@@ -3328,6 +3340,7 @@ def update_sales_manager(manager_id: int,data: SalesManagerCreate,db: Session = 
     manager.code = data.code
     manager.phone = data.phone
     manager.email = data.email
+    manager.password = data.password
     manager.region = data.region
     manager.is_active = yes_no_to_bool(data.is_active)
     db.commit()
@@ -3351,6 +3364,7 @@ def create_sales_executive(data: SalesExecutiveCreate,db: Session = Depends(get_
         code=data.code,
         phone=data.phone,
         email=data.email,
+        password=data.password,
         region=data.region,
         city=data.city,
         monthly_target=data.monthly_target,
@@ -3969,4 +3983,30 @@ def get_doctor_requests(db: Session = Depends(get_db)):
         }
         for item in requests
     ]
-
+@app.post("/sales-crm/login")
+def sales_crm_login(data: SalesCRMLogin,db: Session = Depends(get_db)):
+    regional_manager = db.query(RegionalManager).filter(
+        RegionalManager.email == data.email,
+        RegionalManager.password == data.password).first()
+    if regional_manager:
+        return {
+            "success": True,
+            "message": "Login successful"
+        }
+    sales_manager = db.query(SalesManager).filter(
+        SalesManager.email == data.email,
+        SalesManager.password == data.password).first()
+    if sales_manager:
+        return {
+            "success": True,
+            "message": "Login successful"
+        }
+    sales_executive = db.query(SalesExecutive).filter(
+        SalesExecutive.email == data.email,
+        SalesExecutive.password == data.password).first()
+    if sales_executive:
+        return {
+            "success": True,
+            "message": "Login successful"
+        }
+    raise HTTPException(status_code=401,detail="Invalid email or password")
