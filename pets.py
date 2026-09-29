@@ -576,6 +576,16 @@ class Attendance(Base):
     logout_area = Column(String(255), nullable=True)
     login_selfie_url = Column(Text, nullable=True)
     logout_selfie_url = Column(Text, nullable=True)
+    lunch_out_time = Column(DateTime, nullable=True)
+    lunch_in_time = Column(DateTime, nullable=True)
+    lunch_out_latitude = Column(Float, nullable=True)
+    lunch_out_longitude = Column(Float, nullable=True)
+    lunch_out_area = Column(String(255), nullable=True)
+    lunch_in_latitude = Column(Float, nullable=True)
+    lunch_in_longitude = Column(Float, nullable=True)
+    lunch_in_area = Column(String(255), nullable=True)
+    lunch_out_selfie_url = Column(Text, nullable=True)
+    lunch_in_selfie_url = Column(Text, nullable=True)
     total_working_minutes = Column(Integer, nullable=True)
     status = Column(String(50), default="LOGGED_IN")
     created_at = Column(DateTime, default=lambda: datetime.now(ZoneInfo("Asia/Kolkata")).replace(tzinfo=None))
@@ -994,6 +1004,18 @@ class AttendanceLoginCreate(BaseModel):
     area: Optional[str] = None
     selfie_data: Optional[str] = None
 class AttendanceLogoutCreate(BaseModel):
+    executive_id: int
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    area: Optional[str] = None
+    selfie_data: Optional[str] = None
+class AttendanceLunchOutCreate(BaseModel):
+    executive_id: int
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    area: Optional[str] = None
+    selfie_data: Optional[str] = None
+class AttendanceLunchInCreate(BaseModel):
     executive_id: int
     latitude: Optional[float] = None
     longitude: Optional[float] = None
@@ -4114,6 +4136,58 @@ def attendance_logout(data: AttendanceLogoutCreate, db: Session = Depends(get_db
     attendance.status = "LOGGED_OUT"
     if attendance.login_time:
         attendance.total_working_minutes = int((now - attendance.login_time).total_seconds() / 60)
+    try:
+        db.commit()
+        db.refresh(attendance)
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+    return plan_response(attendance)
+@app.post("/attendance/lunch-out")
+def attendance_lunch_out(data: AttendanceLunchOutCreate, db: Session = Depends(get_db)):
+    now = datetime.now(ZoneInfo("Asia/Kolkata")).replace(tzinfo=None)
+    attendance = db.query(Attendance).filter(
+        Attendance.executive_id == data.executive_id,
+        Attendance.attendance_date == now.date()).first()
+    if not attendance:
+        raise HTTPException(status_code=400, detail="No active login found for today")
+    if attendance.status == "LOGGED_OUT":
+        raise HTTPException(status_code=400, detail="Already logged out")
+    if attendance.lunch_out_time:
+        raise HTTPException(status_code=400, detail="Already took lunch out")
+    attendance.lunch_out_time = now
+    attendance.lunch_out_latitude = data.latitude
+    attendance.lunch_out_longitude = data.longitude
+    attendance.lunch_out_area = data.area
+    attendance.lunch_out_selfie_url = save_base64_image(data.selfie_data)
+    attendance.status = "LUNCH_OUT"
+    try:
+        db.commit()
+        db.refresh(attendance)
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+    return plan_response(attendance)
+@app.post("/attendance/lunch-in")
+def attendance_lunch_in(data: AttendanceLunchInCreate, db: Session = Depends(get_db)):
+    now = datetime.now(ZoneInfo("Asia/Kolkata")).replace(tzinfo=None)
+    attendance = db.query(Attendance).filter(
+        Attendance.executive_id == data.executive_id,
+        Attendance.attendance_date == now.date()).first()
+    if not attendance:
+        raise HTTPException(status_code=400, detail="No active login found for today")
+    if attendance.status == "LOGGED_OUT":
+        raise HTTPException(status_code=400, detail="Already logged out")
+    if not attendance.lunch_out_time:
+        raise HTTPException(status_code=400, detail="Did not take lunch out")
+    if attendance.lunch_in_time:
+        raise HTTPException(status_code=400, detail="Already took lunch in")
+    attendance.lunch_in_time = now
+    attendance.lunch_in_latitude = data.latitude
+    attendance.lunch_in_longitude = data.longitude
+    attendance.lunch_in_area = data.area
+    attendance.lunch_in_selfie_url = save_base64_image(data.selfie_data)
+    attendance.status = "LOGGED_IN"
     try:
         db.commit()
         db.refresh(attendance)
