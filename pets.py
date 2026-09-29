@@ -1,16 +1,22 @@
 from fastapi import FastAPI ,Depends, HTTPException, Form, UploadFile, File
+from fastapi.staticfiles import StaticFiles     
 from pydantic import BaseModel
 from sqlalchemy import create_engine, Integer,Column
 from sqlalchemy import String,Boolean,Float,Date,DateTime,Time,ForeignKey,text,Text,UniqueConstraint,LargeBinary
 from sqlalchemy.orm import declarative_base,sessionmaker,Session
 from typing import Optional
-from datetime import datetime,date,time
+from datetime import datetime,date,time,timedelta
 from zoneinfo import ZoneInfo
+import os
+import base64
+import uuid
 DATABASE_URL = "mysql+pymysql://root:Snk%4026112000@127.0.0.1:3306/pet_management"
 engine = create_engine( DATABASE_URL,echo=True,pool_pre_ping=True)
 SessionLocal = sessionmaker(autocommit=False,autoflush=False,bind=engine)
 Base = declarative_base()
 app = FastAPI(title= "Pet Management API",version= "1.0.0")
+os.makedirs("uploads", exist_ok=True)
+app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 def yes_no_to_bool(value):
     if isinstance(value, bool):
         return value
@@ -21,6 +27,21 @@ def yes_no_to_bool(value):
         if value == "no":
             return False
     raise HTTPException(status_code=422,detail="Value must be Yes or No")
+def save_base64_image(b64_str: Optional[str]) -> str:
+    if not b64_str:
+        return ""
+    try:
+        if "," in b64_str:
+            b64_str = b64_str.split(",")[1]
+        img_data = base64.b64decode(b64_str)
+        filename = f"{uuid.uuid4().hex}.jpg"
+        filepath = os.path.join("uploads", filename)
+        with open(filepath, "wb") as f:
+            f.write(img_data)
+        return f"/uploads/{filename}"
+    except Exception as e:
+        print("Image save error:", str(e))
+        return ""
 def plan_response(obj):
     data = {k: v for k, v in obj.__dict__.items() if k != "_sa_instance_state"}
     for k, v in data.items():
@@ -540,6 +561,29 @@ class DoctorRequest(Base):
     signature_content_type = Column(String(100), nullable=True)
     status = Column(String(50), default="Pending", nullable=False)
     created_at = Column(DateTime, default=lambda: datetime.now(ZoneInfo("Asia/Kolkata")).replace(tzinfo=None))
+class Attendance(Base):
+    __tablename__ = "attendance"
+    id = Column(Integer, primary_key=True, index=True)
+    executive_id = Column(Integer, ForeignKey("sales_executives.id"), nullable=False)
+    attendance_date = Column(Date, nullable=False)
+    login_time = Column(DateTime, nullable=True)
+    logout_time = Column(DateTime, nullable=True)
+    login_latitude = Column(Float, nullable=True)
+    login_longitude = Column(Float, nullable=True)
+    login_area = Column(String(255), nullable=True)
+    logout_latitude = Column(Float, nullable=True)
+    logout_longitude = Column(Float, nullable=True)
+    logout_area = Column(String(255), nullable=True)
+    login_selfie_url = Column(Text, nullable=True)
+    logout_selfie_url = Column(Text, nullable=True)
+    total_working_minutes = Column(Integer, nullable=True)
+    status = Column(String(50), default="LOGGED_IN")
+    created_at = Column(DateTime, default=lambda: datetime.now(ZoneInfo("Asia/Kolkata")).replace(tzinfo=None))
+    updated_at = Column(DateTime,
+        default=lambda: datetime.now(ZoneInfo("Asia/Kolkata")).replace(tzinfo=None),
+        onupdate=lambda: datetime.now(ZoneInfo("Asia/Kolkata")).replace(tzinfo=None)
+    )
+    __table_args__ = (UniqueConstraint("executive_id", "attendance_date", name="uq_exec_attendance_date"),)
 Base.metadata.create_all(bind=engine)
 class PetParentCreate(BaseModel):
     full_name: str
@@ -943,6 +987,18 @@ class RejectBody(BaseModel):
 class SalesCRMLogin(BaseModel):
     email: str
     password: str
+class AttendanceLoginCreate(BaseModel):
+    executive_id: int
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    area: Optional[str] = None
+    selfie_data: Optional[str] = None
+class AttendanceLogoutCreate(BaseModel):
+    executive_id: int
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    area: Optional[str] = None
+    selfie_data: Optional[str] = None
 @app.get("/")
 def home():
     return{"message":"Pet Management API is Running"}
@@ -4010,3 +4066,108 @@ def sales_crm_login(data: SalesCRMLogin,db: Session = Depends(get_db)):
             "message": "Login successful"
         }
     raise HTTPException(status_code=401,detail="Invalid email or password")
+@app.post("/attendance/login")
+def attendance_login(data: AttendanceLoginCreate, db: Session = Depends(get_db)):
+    executive = db.query(SalesExecutive).filter(SalesExecutive.id == data.executive_id).first()
+    if not executive:
+        raise HTTPException(status_code=404, detail="Sales executive not found")
+    now = datetime.now(ZoneInfo("Asia/Kolkata")).replace(tzinfo=None)
+    today = now.date()
+    existing = db.query(Attendance).filter(
+        Attendance.executive_id == data.executive_id,
+        Attendance.attendance_date == today).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Already logged in for today")
+    attendance = Attendance(
+        executive_id=data.executive_id,
+        attendance_date=today,
+        login_time=now,
+        login_latitude=data.latitude,
+        login_longitude=data.longitude,
+        login_area=data.area,
+        login_selfie_url=save_base64_image(data.selfie_data),
+        status="LOGGED_IN"
+    )
+    db.add(attendance)
+    try:
+        db.commit()
+        db.refresh(attendance)
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+    return plan_response(attendance)
+@app.post("/attendance/logout")
+def attendance_logout(data: AttendanceLogoutCreate, db: Session = Depends(get_db)):
+    now = datetime.now(ZoneInfo("Asia/Kolkata")).replace(tzinfo=None)
+    attendance = db.query(Attendance).filter(
+        Attendance.executive_id == data.executive_id,
+        Attendance.attendance_date == now.date()).first()
+    if not attendance:
+        raise HTTPException(status_code=400, detail="No active login found for today")
+    if attendance.status == "LOGGED_OUT":
+        raise HTTPException(status_code=400, detail="Already logged out")
+    attendance.logout_time = now
+    attendance.logout_latitude = data.latitude
+    attendance.logout_longitude = data.longitude
+    attendance.logout_area = data.area
+    attendance.logout_selfie_url = save_base64_image(data.selfie_data)
+    attendance.status = "LOGGED_OUT"
+    if attendance.login_time:
+        attendance.total_working_minutes = int((now - attendance.login_time).total_seconds() / 60)
+    try:
+        db.commit()
+        db.refresh(attendance)
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+    return plan_response(attendance)
+@app.get("/attendance/today")
+def get_today_attendance(executive_id: int, db: Session = Depends(get_db)):
+    today = datetime.now(ZoneInfo("Asia/Kolkata")).date()
+    attendance = db.query(Attendance).filter(
+        Attendance.executive_id == executive_id,
+        Attendance.attendance_date == today).first()
+    if not attendance:
+        return None
+    return plan_response(attendance)
+@app.get("/attendance/executive/{executive_id}")
+def get_executive_attendance(executive_id: int, db: Session = Depends(get_db)):
+    records = db.query(Attendance).filter(
+        Attendance.executive_id == executive_id
+    ).order_by(Attendance.attendance_date.desc()).all()
+    return [plan_response(r) for r in records]
+@app.get("/attendance/executive/{executive_id}/history")
+def get_executive_attendance_history(executive_id: int, days: int = 45, db: Session = Depends(get_db)):
+    cutoff = datetime.now(ZoneInfo("Asia/Kolkata")).date() - timedelta(days=days)
+    records = db.query(Attendance).filter(
+        Attendance.executive_id == executive_id,
+        Attendance.attendance_date >= cutoff
+    ).order_by(Attendance.attendance_date.desc()).all()
+    return [plan_response(r) for r in records]
+@app.get("/attendance/date/{attendance_date}")
+def get_attendance_by_date(attendance_date: date, db: Session = Depends(get_db)):
+    records = db.query(Attendance).filter(Attendance.attendance_date == attendance_date).all()
+    executive_map = {e.id: e.name for e in db.query(SalesExecutive).all()}
+    result = []
+    for r in records:
+        item = plan_response(r)
+        item["executive_name"] = executive_map.get(r.executive_id, f"Executive {r.executive_id}")
+        result.append(item)
+    return result
+@app.get("/attendance/search")
+def search_executive_attendance(name: str, days: int = 45, db: Session = Depends(get_db)):
+    cutoff = datetime.now(ZoneInfo("Asia/Kolkata")).date() - timedelta(days=days)
+    executives = db.query(SalesExecutive).filter(SalesExecutive.name.ilike(f"%{name}%")).all()
+    if not executives:
+        return []
+    executive_map = {e.id: e.name for e in executives}
+    records = db.query(Attendance).filter(
+        Attendance.executive_id.in_(list(executive_map.keys())),
+        Attendance.attendance_date >= cutoff
+    ).order_by(Attendance.attendance_date.desc()).all()
+    result = []
+    for r in records:
+        item = plan_response(r)
+        item["executive_name"] = executive_map.get(r.executive_id, f"Executive {r.executive_id}")
+        result.append(item)
+    return result
